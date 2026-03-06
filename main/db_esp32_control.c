@@ -709,6 +709,13 @@ _Noreturn void control_module_udp_tcp() {
                 // no parsing with any other protocol - transparent here
                 write_to_serial(udp_buffer, recv_length);
             }
+
+            // Forward radio data to all other network clients (MAVLink Router/Hub functionality)
+            // This ensures STAs can see each other and the GCS can see all STAs
+            if (DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP || DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP_LR) {
+                db_send_to_all_udp_clients(udp_conn_list, udp_buffer, recv_length);
+            }
+
             // all devices that send us UDP data will be added to the list of UDP receivers
             // Allows to register new app on different port. Used e.g. for UDP conn setup in sta-mode.
             // Devices/Ports added this way cannot be removed in sta-mode since UDP is connectionless, and we cannot
