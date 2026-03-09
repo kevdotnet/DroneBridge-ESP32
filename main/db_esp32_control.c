@@ -168,6 +168,33 @@ int db_open_int_telemetry_udp_socket() {
  * @param data Buffer with the data to send
  * @param data_length Length of the data in the buffer
  */
+/**
+ * Checks if a MAVLink system ID is in the blacklist
+ * @param system_id The system ID to check
+ * @return true if blacklisted, false otherwise
+ */
+bool is_system_id_blacklisted(uint8_t system_id) {
+    char *blacklist = DB_PARAM_MAV_BLACKLIST;
+    if (blacklist == NULL || blacklist[0] == '\0') return false;
+
+    char temp_blacklist[DB_PARAM_VALUE_MAXLEN];
+    strncpy(temp_blacklist, blacklist, sizeof(temp_blacklist));
+    temp_blacklist[sizeof(temp_blacklist)-1] = '\0';
+
+    char *token = strtok(temp_blacklist, ",");
+    while (token != NULL) {
+        if (atoi(token) == (int)system_id) return true;
+        token = strtok(NULL, ",");
+    }
+    return false;
+}
+
+/**
+ * Sends the data to all registered UDP clients.
+ * @param n_udp_conn_list The list of UDP clients
+ * @param data The data to be sent
+ * @param data_length Length of the data in the buffer
+ */
 void db_send_to_all_udp_clients(udp_conn_list_t *n_udp_conn_list, const uint8_t *data, uint data_length) {
     // Simple MAVLink Sniffer to identify Heartbeats
     bool is_heartbeat = false;
@@ -187,6 +214,11 @@ void db_send_to_all_udp_clients(udp_conn_list_t *n_udp_conn_list, const uint8_t 
             if (!n_udp_conn_list->db_udp_clients[i].is_gcs) {
                 continue; // Skip this client (is another drone or unknown)
             }
+        }
+
+        // Apply Blacklist: Skip if system ID is blacklisted and it's not a Heartbeat
+        if (!is_heartbeat && is_system_id_blacklisted(n_udp_conn_list->db_udp_clients[i].system_id)) {
+            continue;
         }
 
         int sent = sendto(n_udp_conn_list->udp_socket, data, data_length, 0,
@@ -408,6 +440,7 @@ add_to_known_udp_clients(udp_conn_list_t *n_udp_conn_list, struct db_udp_client_
                 n_udp_conn_list->db_udp_clients[i].is_gcs = true;
                 ESP_LOGI(TAG, "Identified existing UDP client as GCS");
             }
+            n_udp_conn_list->db_udp_clients[i].system_id = new_db_udp_client.system_id;
             return false; // client existing - do not add
         }
     }
@@ -729,15 +762,19 @@ _Noreturn void control_module_udp_tcp() {
             // Simple MAVLink Sniffer to identify GCS and Heartbeats
             bool is_gcs_packet = false;
             bool is_heartbeat = false;
+            uint8_t source_sys_id = 0;
             if (recv_length >= 8) {
                 if (udp_buffer[0] == 0xFE) { // MAVLink v1
-                    if (udp_buffer[3] == 255) is_gcs_packet = true;
+                    source_sys_id = udp_buffer[3];
+                    if (source_sys_id == 255) is_gcs_packet = true;
                     if (udp_buffer[5] == 0) is_heartbeat = true;
                 } else if (udp_buffer[0] == 0xFD && recv_length >= 10) { // MAVLink v2
-                    if (udp_buffer[5] == 255) is_gcs_packet = true;
+                    source_sys_id = udp_buffer[5];
+                    if (source_sys_id == 255) is_gcs_packet = true;
                     if (udp_buffer[7] == 0 && udp_buffer[8] == 0 && udp_buffer[9] == 0) is_heartbeat = true;
                 }
             }
+            new_db_udp_client.system_id = source_sys_id;
             new_db_udp_client.is_gcs = is_gcs_packet;
 
             // all devices that send us UDP data will be added to the list of UDP receivers

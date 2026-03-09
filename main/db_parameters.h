@@ -34,7 +34,7 @@
 #define DB_MATURITY_VERSION "stable"
 #define DB_TYPE_VERSION 255 // FIRMWARE_VERSION_TYPE_OFFICIAL -> https://mavlink.io/en/messages/common.html#FIRMWARE_VERSION_TYPE
 
-#define DB_PARAM_TOTAL_NUM          29  // total number of db parameters
+#define DB_PARAM_TOTAL_NUM          30  // total number of db parameters
 #define DB_PARAM_MAV_CNT            21  // Number of MAVLink parameters returned by ESP32 in the PARAM message. Needed by GCS.
 
 #define DB_PARAM_NAME_MAXLEN        16      // max len of a parameter/key stored in the ESP32 NVM
@@ -92,6 +92,7 @@
 #define DB_PARAM_SERIAL_RTS_THRESH db_param_gpio_rts_thresh.value.db_param_u8.value
 #define DB_PARAM_EN_EXT_ANT db_param_radio_ant_ext.value.db_param_u8.value
 #define DB_PARAM_MAV_BROADCAST db_param_mav_broadcast.value.db_param_u8.value
+#define DB_PARAM_MAV_BLACKLIST (char *) db_param_mav_blacklist.value.db_param_str.value
 
 enum E_DB_WIFI_MODE {
   DB_WIFI_MODE_AP         = 1, // Wi-Fi access point mode with 802.11b mode enabled
@@ -189,6 +190,7 @@ extern db_parameter_t db_param_dis_radio_armed;
 extern db_parameter_t db_param_udp_client_port;
 extern db_parameter_t db_param_rssi_dbm;
 extern db_parameter_t db_param_mav_broadcast;
+extern db_parameter_t db_param_mav_blacklist;
 
 
 void db_param_init_parameters();

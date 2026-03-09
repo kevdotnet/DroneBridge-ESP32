@@ -46,7 +46,7 @@ uint8_t DB_RADIO_MODE_DESIGNATED = DB_WIFI_MODE_AP; // initially assign the same
 /* ---------- String based parameters - not available via MAVLink ---------- */
 
 db_parameter_t db_param_ssid, db_param_pass, db_param_wifi_ap_ip, db_param_wifi_sta_ip, db_param_wifi_sta_gw,
-    db_param_wifi_sta_netmask, db_param_udp_client_ip, db_param_wifi_hostname = {0};
+    db_param_wifi_sta_netmask, db_param_udp_client_ip, db_param_wifi_hostname, db_param_mav_blacklist = {0};
 
 /* ---------- From here with increasing param_index all parameters that are also available via MAVLink ---------- */
 
@@ -514,6 +514,8 @@ void db_param_init_parameters() {
     db_param_udp_client_ip = db_param_init_str_param("udp_client_ip", "WIFI_UDP_IP", "", 0, IP4ADDR_STRLEN_MAX);
     // Specifies the hostname. Used in Wi-Fi ap & client mode.
     db_param_wifi_hostname = db_param_init_str_param("wifi_hostname", "WIFI_HOSTNAME", CONFIG_LWIP_LOCAL_HOSTNAME, 1, 32);
+    // MAVLink system ID blacklist for cross-forwarding (comma separated list of IDs)
+    db_param_mav_blacklist = db_param_init_str_param("mav_blacklist", "MAV_BLACKLIST", "", 0, DB_PARAM_VALUE_MAXLEN);
 
     db_parameter_t *db_params_l[] = {
             &db_param_ssid,
@@ -524,6 +526,7 @@ void db_param_init_parameters() {
             &db_param_wifi_sta_netmask,
             &db_param_udp_client_ip,
             &db_param_wifi_hostname,
+            &db_param_mav_blacklist,
             &db_param_radio_mode,
             &db_param_channel,
             &db_param_wifi_en_gn,
