@@ -526,7 +526,7 @@ _Noreturn void control_module_esp_now() {
             if (DB_PARAM_SERIAL_PROTO == DB_SERIAL_PROTOCOL_MAVLINK) {
                 // Parse, so we can listen in and react to certain messages - function will send parsed messages to serial link.
                 // We can not write to serial first since we might inject packets and do not know when to do so to not "destroy" an existing packet
-                db_parse_mavlink_from_radio(NULL, NULL, db_espnow_uart_evt.data, db_espnow_uart_evt.data_len);
+                db_parse_mavlink_from_radio(NULL, NULL, db_espnow_uart_evt.data, db_espnow_uart_evt.data_len, true);
             } else {
                 // no parsing with any other protocol - transparent here - just pass through
                 write_to_serial(db_espnow_uart_evt.data, db_espnow_uart_evt.data_len);
@@ -746,12 +746,15 @@ _Noreturn void control_module_udp_tcp() {
             add_to_known_udp_clients(udp_conn_list, new_db_udp_client, false);
 
             if (DB_PARAM_SERIAL_PROTO == DB_SERIAL_PROTOCOL_MAVLINK) {
-                // Parse, so we can listen in and react to certain messages - function will send parsed messages to serial link.
-                // We can not write to serial first since we might inject packets and do not know when to do so to not "destroy" an existing packet
-                db_parse_mavlink_from_radio(connected_tcp_clients, udp_conn_list, udp_buffer, recv_length);
+                // Parse, so we can listen in and react to certain messages - function will send parsed messages to serial link if allowed.
+                // Packets from other drones are parsed (for ESP32 params) but not pushed to local FC UART if Hub is disabled.
+                bool should_forward_to_serial = is_gcs_packet || DB_PARAM_MAV_BROADCAST || is_heartbeat;
+                db_parse_mavlink_from_radio(connected_tcp_clients, udp_conn_list, udp_buffer, recv_length, should_forward_to_serial);
             } else {
-                // no parsing with any other protocol - transparent here
-                write_to_serial(udp_buffer, recv_length);
+                // no parsing with any other protocol - only forward if it's from GCS or Hub is enabled
+                if (is_gcs_packet || DB_PARAM_MAV_BROADCAST || is_heartbeat) {
+                    write_to_serial(udp_buffer, recv_length);
+                }
             }
 
             // Forward radio data to all other network clients (MAVLink Router/Hub functionality)
@@ -872,7 +875,7 @@ _Noreturn void control_module_ble() {
                 // Parse, so we can listen in and react to certain messages - function will send parsed messages to serial link.
                 // We cannot write to serial first since we might inject packets and do not know when to do so to not "destroy" an
                 // existing packet
-                db_parse_mavlink_from_radio(NULL, NULL, bleData.data, bleData.data_len);
+                db_parse_mavlink_from_radio(NULL, NULL, bleData.data, bleData.data_len, true);
             } else {
                 // no parsing with any other protocol - transparent here - just pass through
                 write_to_serial(bleData.data, bleData.data_len);
