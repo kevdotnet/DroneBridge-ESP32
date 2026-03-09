@@ -33,6 +33,7 @@
 struct db_udp_client_t {
     uint8_t mac[6];     // MAC address of connected client
     struct sockaddr_in udp_client;    // socket address (IP & PORT) of connected client
+    bool is_gcs;        // true if this client has sent a MAVLink packet from System ID 255 (GCS)
 };
 
 typedef struct udp_conn_list_s {

@@ -169,19 +169,23 @@ int db_open_int_telemetry_udp_socket() {
  * @param data_length Length of the data in the buffer
  */
 void db_send_to_all_udp_clients(udp_conn_list_t *n_udp_conn_list, const uint8_t *data, uint data_length) {
+    // Simple MAVLink Sniffer to identify Heartbeats
+    bool is_heartbeat = false;
+    if (data_length >= 8) {
+        if (data[0] == 0xFE) { // MAVLink v1
+            if (data[5] == 0) is_heartbeat = true;
+        } else if (data[0] == 0xFD && data_length >= 10) { // MAVLink v2
+            if (data[7] == 0 && data[8] == 0 && data[9] == 0) is_heartbeat = true;
+        }
+    }
+
     for (int i = 0; i < n_udp_conn_list->size; i++) {  // send to all UDP clients
-        // If Hub mode is OFF and we are in AP mode: Do not send local serial data to other STAs (drones).
-        // STAs are identified by having a non-zero MAC address.
-        if (!DB_PARAM_MAV_BROADCAST && (DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP || DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP_LR)) {
-            bool is_target_sta = false;
-            for (int m = 0; m < 6; m++) {
-                if (n_udp_conn_list->db_udp_clients[i].mac[m] != 0) {
-                    is_target_sta = true;
-                    break;
-                }
-            }
-            if (is_target_sta) {
-                continue; // Skip this client (is a drone)
+        // If Hub mode is OFF and we are in AP mode:
+        // 1. Always allow Heartbeats
+        // 2. Only allow other telemetry to reach identified GCS clients
+        if (!is_heartbeat && !DB_PARAM_MAV_BROADCAST && (DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP || DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP_LR)) {
+            if (!n_udp_conn_list->db_udp_clients[i].is_gcs) {
+                continue; // Skip this client (is another drone or unknown)
             }
         }
 
@@ -399,6 +403,11 @@ add_to_known_udp_clients(udp_conn_list_t *n_udp_conn_list, struct db_udp_client_
         if ((n_udp_conn_list->db_udp_clients[i].udp_client.sin_port == new_db_udp_client.udp_client.sin_port) &&
             (n_udp_conn_list->db_udp_clients[i].udp_client.sin_addr.s_addr ==
              new_db_udp_client.udp_client.sin_addr.s_addr)) {
+            // Update GCS status if the new packet identifies it as GCS
+            if (new_db_udp_client.is_gcs && !n_udp_conn_list->db_udp_clients[i].is_gcs) {
+                n_udp_conn_list->db_udp_clients[i].is_gcs = true;
+                ESP_LOGI(TAG, "Identified existing UDP client as GCS");
+            }
             return false; // client existing - do not add
         }
     }
@@ -409,7 +418,7 @@ add_to_known_udp_clients(udp_conn_list_t *n_udp_conn_list, struct db_udp_client_
     char ip_string[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &(new_db_udp_client.udp_client.sin_addr), ip_string, INET_ADDRSTRLEN);
     sprintf(ip_port_string, "%s:%d", ip_string, htons (new_db_udp_client.udp_client.sin_port));
-    ESP_LOGI(TAG, "Added %s to udp client distribution list - save to NVM: %i", ip_port_string, save_to_nvm);
+    ESP_LOGI(TAG, "Added %s to udp client distribution list (is_gcs: %i) - save to NVM: %i", ip_port_string, new_db_udp_client.is_gcs, save_to_nvm);
     // save to memory
     if (save_to_nvm) {
         save_udp_client_to_nvm(&new_db_udp_client, false);
@@ -716,6 +725,26 @@ _Noreturn void control_module_udp_tcp() {
                                        (struct sockaddr *) &new_db_udp_client.udp_client, &udp_socklen);
         if (recv_length > 0) {
             data_processed = true;
+
+            // Simple MAVLink Sniffer to identify GCS and Heartbeats
+            bool is_gcs_packet = false;
+            bool is_heartbeat = false;
+            if (recv_length >= 8) {
+                if (udp_buffer[0] == 0xFE) { // MAVLink v1
+                    if (udp_buffer[3] == 255) is_gcs_packet = true;
+                    if (udp_buffer[5] == 0) is_heartbeat = true;
+                } else if (udp_buffer[0] == 0xFD && recv_length >= 10) { // MAVLink v2
+                    if (udp_buffer[5] == 255) is_gcs_packet = true;
+                    if (udp_buffer[7] == 0 && udp_buffer[8] == 0 && udp_buffer[9] == 0) is_heartbeat = true;
+                }
+            }
+            new_db_udp_client.is_gcs = is_gcs_packet;
+
+            // all devices that send us UDP data will be added to the list of UDP receivers
+            // Allows to register new app on different port. Used e.g. for UDP conn setup in sta-mode.
+            // Register client before forwarding so that target checks (is_gcs) work for responses
+            add_to_known_udp_clients(udp_conn_list, new_db_udp_client, false);
+
             if (DB_PARAM_SERIAL_PROTO == DB_SERIAL_PROTOCOL_MAVLINK) {
                 // Parse, so we can listen in and react to certain messages - function will send parsed messages to serial link.
                 // We can not write to serial first since we might inject packets and do not know when to do so to not "destroy" an existing packet
@@ -737,31 +766,17 @@ _Noreturn void control_module_udp_tcp() {
                     }
 
                     // Forwarding Logic:
-                    // 1. If Hub mode is ON: Forward to everyone.
-                    // 2. If Hub mode is OFF: Only forward to non-STA clients (GCS).
-                    // STAs are identified by having a non-zero MAC address in our list.
-                    bool is_target_sta = false;
-                    for (int m = 0; m < 6; m++) {
-                        if (udp_conn_list->db_udp_clients[i].mac[m] != 0) {
-                            is_target_sta = true;
-                            break;
-                        }
-                    }
-
-                    if (DB_PARAM_MAV_BROADCAST || !is_target_sta) {
+                    // 1. Always forward Heartbeats (Msg ID 0) to everyone to keep links alive.
+                    // 2. Always forward everything from a GCS (SysID 255).
+                    // 3. If Hub mode is ON: Forward everything.
+                    // 4. If Hub mode is OFF: Only forward to identified GCS clients.
+                    if (is_heartbeat || is_gcs_packet || DB_PARAM_MAV_BROADCAST || udp_conn_list->db_udp_clients[i].is_gcs) {
                         sendto(udp_conn_list->udp_socket, udp_buffer, recv_length, 0,
                                (struct sockaddr *)&udp_conn_list->db_udp_clients[i].udp_client,
                                sizeof(struct sockaddr_in));
                     }
                 }
             }
-
-            // all devices that send us UDP data will be added to the list of UDP receivers
-            // Allows to register new app on different port. Used e.g. for UDP conn setup in sta-mode.
-            // Devices/Ports added this way cannot be removed in sta-mode since UDP is connectionless, and we cannot
-            // determine if the client is still existing. This will blow up the list connected devices.
-            // In AP-Mode the devices can be removed based on the IP/MAC address
-            add_to_known_udp_clients(udp_conn_list, new_db_udp_client, false);
         } else {
             // received nothing, keep on going
         }
