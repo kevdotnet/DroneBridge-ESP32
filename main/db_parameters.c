@@ -415,6 +415,28 @@ db_parameter_t db_param_rssi_dbm = {
 };
 
 /**
+ * Enable/Disable cross-forwarding of MAVLink messages between clients (Hub mode)
+ */
+db_parameter_t db_param_mav_broadcast = {
+        .db_name = "mav_broadcast",
+        .type = UINT8,
+        .mav_t = {
+                .param_name = "SYS_MAV_HUB_EN",
+                .param_index = 20,
+                .param_type = MAV_PARAM_TYPE_UINT8,
+        },
+        .value = {
+                .db_param_u8 = {
+                        .value = true,
+                        .default_value = true,
+                        .min = false,
+                        .max = true,
+                }
+        }
+};
+
+
+/**
  * Array containing all references to the DB parameters assigned with db_param_init_parameters()
  */
 db_parameter_t *db_params[DB_PARAM_TOTAL_NUM] = {NULL};
@@ -518,7 +540,8 @@ void db_param_init_parameters() {
             &db_param_ltm_per_packet,
             &db_param_dis_radio_armed,
             &db_param_udp_client_port,
-            &db_param_rssi_dbm
+            &db_param_rssi_dbm,
+            &db_param_mav_broadcast
     };
     memcpy(db_params, db_params_l, sizeof(db_params_l));
 }

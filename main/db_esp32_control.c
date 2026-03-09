@@ -713,7 +713,7 @@ _Noreturn void control_module_udp_tcp() {
             // Forward radio data to all other network clients (MAVLink Router/Hub functionality)
             // This ensures STAs can see each other and the GCS can see all STAs
             // Uses Split-Horizon: Do not send back to source.
-            if (DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP || DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP_LR) {
+            if ((DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP || DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP_LR) && DB_PARAM_MAV_BROADCAST) {
                 for (int i = 0; i < udp_conn_list->size; i++) {
                     if (udp_conn_list->db_udp_clients[i].udp_client.sin_addr.s_addr != new_db_udp_client.udp_client.sin_addr.s_addr ||
                         udp_conn_list->db_udp_clients[i].udp_client.sin_port != new_db_udp_client.udp_client.sin_port) {
