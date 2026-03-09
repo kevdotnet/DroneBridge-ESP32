@@ -31,7 +31,14 @@ function change_ap_ip_visibility() {
 		wifi_en_gn_div: document.getElementById("wifi_en_gn_div"),
 		static_ip_config_div: document.getElementById("static_ip_config_div"),
 		pass_div: document.getElementById("pass_div"),
+		mav_broadcast_div: document.getElementById("mav_broadcast_div"),
 	};
+
+	if (esp32Mode === "1" || esp32Mode === "3") {
+		elements.mav_broadcast_div.style.display = "block";
+	} else {
+		elements.mav_broadcast_div.style.display = "none";
+	}
 
 	if (esp32Mode === "2") {
 		elements.ap_ip_div.style.display = "none";
