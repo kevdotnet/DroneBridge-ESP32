@@ -168,11 +168,26 @@ int db_open_int_telemetry_udp_socket() {
  * @param data Buffer with the data to send
  * @param data_length Length of the data in the buffer
  */
-void db_send_to_all_udp_clients(const uint8_t *data, uint data_length) {
-    for (int i = 0; i < udp_conn_list->size; i++) {  // send to all UDP clients
-        int sent = sendto(udp_conn_list->udp_socket, data, data_length, 0,
-                          (struct sockaddr *) &udp_conn_list->db_udp_clients[i].udp_client,
-                          sizeof(udp_conn_list->db_udp_clients[i].udp_client));
+void db_send_to_all_udp_clients(udp_conn_list_t *n_udp_conn_list, const uint8_t *data, uint data_length) {
+    for (int i = 0; i < n_udp_conn_list->size; i++) {  // send to all UDP clients
+        // If Hub mode is OFF and we are in AP mode: Do not send local serial data to other STAs (drones).
+        // STAs are identified by having a non-zero MAC address.
+        if (!DB_PARAM_MAV_BROADCAST && (DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP || DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP_LR)) {
+            bool is_target_sta = false;
+            for (int m = 0; m < 6; m++) {
+                if (n_udp_conn_list->db_udp_clients[i].mac[m] != 0) {
+                    is_target_sta = true;
+                    break;
+                }
+            }
+            if (is_target_sta) {
+                continue; // Skip this client (is a drone)
+            }
+        }
+
+        int sent = sendto(n_udp_conn_list->udp_socket, data, data_length, 0,
+                          (struct sockaddr *) &n_udp_conn_list->db_udp_clients[i].udp_client,
+                          sizeof(n_udp_conn_list->db_udp_clients[i].udp_client));
         if (sent != data_length) {
             int err = errno;
             char *client_ip = inet_ntoa(((struct sockaddr_in *)&udp_conn_list->db_udp_clients[i].udp_client)->sin_addr);
@@ -713,10 +728,27 @@ _Noreturn void control_module_udp_tcp() {
             // Forward radio data to all other network clients (MAVLink Router/Hub functionality)
             // This ensures STAs can see each other and the GCS can see all STAs
             // Uses Split-Horizon: Do not send back to source.
-            if ((DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP || DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP_LR) && DB_PARAM_MAV_BROADCAST) {
+            if (DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP || DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP_LR) {
                 for (int i = 0; i < udp_conn_list->size; i++) {
-                    if (udp_conn_list->db_udp_clients[i].udp_client.sin_addr.s_addr != new_db_udp_client.udp_client.sin_addr.s_addr ||
-                        udp_conn_list->db_udp_clients[i].udp_client.sin_port != new_db_udp_client.udp_client.sin_port) {
+                    // Skip the source client
+                    if (udp_conn_list->db_udp_clients[i].udp_client.sin_addr.s_addr == new_db_udp_client.udp_client.sin_addr.s_addr &&
+                        udp_conn_list->db_udp_clients[i].udp_client.sin_port == new_db_udp_client.udp_client.sin_port) {
+                        continue;
+                    }
+
+                    // Forwarding Logic:
+                    // 1. If Hub mode is ON: Forward to everyone.
+                    // 2. If Hub mode is OFF: Only forward to non-STA clients (GCS).
+                    // STAs are identified by having a non-zero MAC address in our list.
+                    bool is_target_sta = false;
+                    for (int m = 0; m < 6; m++) {
+                        if (udp_conn_list->db_udp_clients[i].mac[m] != 0) {
+                            is_target_sta = true;
+                            break;
+                        }
+                    }
+
+                    if (DB_PARAM_MAV_BROADCAST || !is_target_sta) {
                         sendto(udp_conn_list->udp_socket, udp_buffer, recv_length, 0,
                                (struct sockaddr *)&udp_conn_list->db_udp_clients[i].udp_client,
                                sizeof(struct sockaddr_in));
