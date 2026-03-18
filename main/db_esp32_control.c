@@ -787,39 +787,41 @@ _Noreturn void control_module_udp_tcp() {
                 // Packets from other drones are parsed (for ESP32 params) but not pushed to local FC UART if Hub is disabled.
                 bool should_forward_to_serial = is_gcs_packet || DB_PARAM_MAV_BROADCAST || is_heartbeat;
                 db_parse_mavlink_from_radio(connected_tcp_clients, udp_conn_list, udp_buffer, recv_length, should_forward_to_serial);
+
+                // Forward radio data to all other network clients (MAVLink Router/Hub functionality)
+                // This ensures STAs can see each other and the GCS can see all STAs
+                // Uses Split-Horizon: Do not send back to source.
+                // Only applies to MAVLink mode since hub logic relies on MAVLink header sniffing.
+                if (DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP || DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP_LR) {
+                    for (int i = 0; i < udp_conn_list->size; i++) {
+                        // Skip the source client
+                        if (udp_conn_list->db_udp_clients[i].udp_client.sin_addr.s_addr == new_db_udp_client.udp_client.sin_addr.s_addr &&
+                            udp_conn_list->db_udp_clients[i].udp_client.sin_port == new_db_udp_client.udp_client.sin_port) {
+                            continue;
+                        }
+
+                        // Forwarding Logic:
+                        // 1. Always forward Heartbeats (Msg ID 0) to everyone to keep links alive.
+                        // 2. Always forward everything from a GCS (SysID 255).
+                        // 3. If Hub mode is ON: Forward everything.
+                        // 4. If Hub mode is OFF: Only forward to identified GCS clients.
+                        if (is_heartbeat || is_gcs_packet || DB_PARAM_MAV_BROADCAST || udp_conn_list->db_udp_clients[i].is_gcs) {
+                            sendto(udp_conn_list->udp_socket, udp_buffer, recv_length, 0,
+                                   (struct sockaddr *)&udp_conn_list->db_udp_clients[i].udp_client,
+                                   sizeof(struct sockaddr_in));
+                        }
+                    }
+                }
             } else {
                 // no parsing with any other protocol - only forward if it's from GCS or Hub is enabled
                 if (is_gcs_packet || DB_PARAM_MAV_BROADCAST || is_heartbeat) {
                     write_to_serial(udp_buffer, recv_length);
                 }
             }
-
-            // Forward radio data to all other network clients (MAVLink Router/Hub functionality)
-            // This ensures STAs can see each other and the GCS can see all STAs
-            // Uses Split-Horizon: Do not send back to source.
-            if (DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP || DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP_LR) {
-                for (int i = 0; i < udp_conn_list->size; i++) {
-                    // Skip the source client
-                    if (udp_conn_list->db_udp_clients[i].udp_client.sin_addr.s_addr == new_db_udp_client.udp_client.sin_addr.s_addr &&
-                        udp_conn_list->db_udp_clients[i].udp_client.sin_port == new_db_udp_client.udp_client.sin_port) {
-                        continue;
-                    }
-
-                    // Forwarding Logic:
-                    // 1. Always forward Heartbeats (Msg ID 0) to everyone to keep links alive.
-                    // 2. Always forward everything from a GCS (SysID 255).
-                    // 3. If Hub mode is ON: Forward everything.
-                    // 4. If Hub mode is OFF: Only forward to identified GCS clients.
-                    if (is_heartbeat || is_gcs_packet || DB_PARAM_MAV_BROADCAST || udp_conn_list->db_udp_clients[i].is_gcs) {
-                        sendto(udp_conn_list->udp_socket, udp_buffer, recv_length, 0,
-                               (struct sockaddr *)&udp_conn_list->db_udp_clients[i].udp_client,
-                               sizeof(struct sockaddr_in));
-                    }
-                }
-            }
         } else {
             // received nothing, keep on going
         }
+
         if (DB_PARAM_RADIO_MODE == DB_WIFI_MODE_STA) {
             handle_internal_telemetry(db_internal_telem_udp_sock, udp_buffer, &udp_socklen,
                                       &new_db_udp_client.udp_client);
