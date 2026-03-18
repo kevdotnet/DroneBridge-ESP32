@@ -812,9 +812,13 @@ _Noreturn void control_module_udp_tcp() {
                         // Forwarding Logic:
                         // 1. Always forward Heartbeats (Msg ID 0) to everyone to keep links alive.
                         // 2. Always forward everything from a GCS (SysID 255).
-                        // 3. If Hub mode is ON: Forward everything.
+                        // 3. If Hub mode is ON: Forward everything (unless blacklisted).
                         // 4. If Hub mode is OFF: Only forward to identified GCS clients.
                         if (is_heartbeat || is_gcs_packet || DB_PARAM_MAV_BROADCAST || udp_conn_list->db_udp_clients[i].is_gcs) {
+                            // Apply blacklist: skip blacklisted targets (heartbeats always pass through)
+                            if (!is_heartbeat && is_system_id_blacklisted(udp_conn_list->db_udp_clients[i].system_id)) {
+                                continue;
+                            }
                             sendto(udp_conn_list->udp_socket, udp_buffer, recv_length, 0,
                                    (struct sockaddr *)&udp_conn_list->db_udp_clients[i].udp_client,
                                    sizeof(struct sockaddr_in));
