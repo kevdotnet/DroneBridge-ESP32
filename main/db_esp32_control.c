@@ -209,10 +209,19 @@ void db_send_to_all_udp_clients(udp_conn_list_t *n_udp_conn_list, const uint8_t 
     for (int i = 0; i < n_udp_conn_list->size; i++) {  // send to all UDP clients
         // If Hub mode is OFF and we are in AP mode:
         // 1. Always allow Heartbeats
-        // 2. Only allow other telemetry to reach identified GCS clients
+        // 2. Always allow clients with no MAC (manually saved static IPs, e.g. a GCS configured via the UI)
+        //    since they were never registered via the WiFi STA event and start with is_gcs=false after reboot.
+        // 3. Only allow other telemetry to reach clients identified as GCS at runtime (SysID 255).
         if (!is_heartbeat && !DB_PARAM_MAV_BROADCAST && (DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP || DB_PARAM_RADIO_MODE == DB_WIFI_MODE_AP_LR)) {
-            if (!n_udp_conn_list->db_udp_clients[i].is_gcs) {
-                continue; // Skip this client (is another drone or unknown)
+            bool has_mac = false;
+            for (int m = 0; m < 6; m++) {
+                if (n_udp_conn_list->db_udp_clients[i].mac[m] != 0) {
+                    has_mac = true;
+                    break;
+                }
+            }
+            if (has_mac && !n_udp_conn_list->db_udp_clients[i].is_gcs) {
+                continue; // Skip: WiFi STA that has not identified itself as a GCS
             }
         }
 
