@@ -44,6 +44,7 @@
 #include "main.h"
 #include "db_serial.h"
 #include "db_esp_now.h"
+#include "db_mavlink_msgs.h"
 
 #define TAG "DB_CONTROL"
 
@@ -794,7 +795,9 @@ _Noreturn void control_module_udp_tcp() {
             if (DB_PARAM_SERIAL_PROTO == DB_SERIAL_PROTOCOL_MAVLINK) {
                 // Parse, so we can listen in and react to certain messages - function will send parsed messages to serial link if allowed.
                 // Packets from other drones are parsed (for ESP32 params) but not pushed to local FC UART if Hub is disabled.
-                bool should_forward_to_serial = is_gcs_packet || DB_PARAM_MAV_BROADCAST || is_heartbeat;
+                // Apply blacklist to serial: if the local FC's SysID is blacklisted, only heartbeats reach it.
+                bool should_forward_to_serial = (is_gcs_packet || DB_PARAM_MAV_BROADCAST || is_heartbeat)
+                                                && (is_heartbeat || !is_system_id_blacklisted(db_get_mav_sys_id()));
                 db_parse_mavlink_from_radio(connected_tcp_clients, udp_conn_list, udp_buffer, recv_length, should_forward_to_serial);
 
                 // Forward radio data to all other network clients (MAVLink Router/Hub functionality)
